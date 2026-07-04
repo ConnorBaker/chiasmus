@@ -1,14 +1,20 @@
 {
+  cctools,
   fetchPnpmDeps,
   lib,
   makeWrapper,
-  nodejs,
-  pnpm,
+  nodejs_26,
+  pnpm_10,
   pnpmBuildHook,
   pnpmConfigHook,
   python3,
   stdenv,
 }:
+let
+  # We need the full nodejs package because we run `npm` to build.
+  nodejs = nodejs_26;
+  pnpm = pnpm_10.override { nodejs-slim = nodejs; };
+in
 stdenv.mkDerivation (finalAttrs: {
   __structuredAttrs = true;
   strictDeps = true;
@@ -17,6 +23,8 @@ stdenv.mkDerivation (finalAttrs: {
   version = "0.1.26";
   src = ./.;
 
+  env.npm_config_nodedir = nodejs.outPath;
+
   nativeBuildInputs = [
     nodejs
     pnpm
@@ -24,13 +32,15 @@ stdenv.mkDerivation (finalAttrs: {
     pnpmBuildHook
     python3 # for node-gyp (better-sqlite3 native build)
     makeWrapper
-  ];
+  ]
+  # Provides libtool for Darwin, which is needed to build better-sqlite3's native addon.
+  ++ lib.optionals stdenv.hostPlatform.isDarwin [ cctools.libtool ];
 
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
     inherit pnpm;
     fetcherVersion = 4;
-    hash = "sha256-p6MW2LpBnkw/KhKoHXKXozI/PRUPpblUl8wrUVos7Dw=";
+    hash = "sha256-AX2/rKAwgabk4xNQTAmjCfk8dVKAiN7zLYxtulEXDqg=";
   };
 
   # pnpmConfigHook installs with --ignore-scripts, and the sandbox
@@ -38,7 +48,6 @@ stdenv.mkDerivation (finalAttrs: {
   # addon is never produced. Compile it from source against the local
   # node headers.
   preBuild = ''
-    export npm_config_nodedir=${nodejs}
     pushd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3
     "${lib.getExe' nodejs "npm"}" run build-release
     popd
@@ -46,7 +55,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   installPhase = ''
     runHook preInstall
-    mkdir -p $out/lib/chiasmus
+    mkdir -p "$out/lib/chiasmus"
     cp -r dist node_modules package.json "$out/lib/chiasmus"/
     makeWrapper "${lib.getExe' nodejs "node"}" "$out/bin/chiasmus" \
       --add-flags "$out/lib/chiasmus/dist/mcp-server.js"
